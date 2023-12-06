@@ -1,0 +1,344 @@
+/* #### READ EXCEL FILES #### */
+options validvarname=v7;
+libname np xlsx "S:/workshop/EPG1V2/data/np_info.xlsx";
+
+proc contents data=np.parks;
+run;
+
+libname np clear;
+
+
+/* #### CAN READ XLSX files using either structured method or unstructured method
+strutured "engine" method 
+	1. is a connection to the file, 
+	2. treats sheets as tables, and 
+	3. needs to be closed
+unstructured "dbms" method 
+	1. creates a copy and 
+	2. only reads one sheet at a time 
+
+
+STRUCTURED DATA USES AN ENGINE REFERENCE 
+libname for the excel file itself and each sheet is a table
+v7 enforced sas naming: underscores and truncates long names (32+ char)
+libname clear closes the connection so the excel is not locked
+
+ #### */
+
+options validvarname=v7;
+libname ex xlsx "S:/workshop/EPG1V2/data/class.xlsx";
+
+proc contents data=ex.class_teachers;
+run;
+
+/* #### UNSTRUCTURED DATA NEEDS PROC IMPORT (E.G., CSV, XLS, XLSX too) #### */
+
+proc import datafile="S:/workshop/EPG1V2/data/np_traffic.csv"
+			dbms=csv
+			out=work.traffic
+			replace;
+	guessingrows=max;
+run;
+
+/* by default it reads the first sheet unless specified
+snapshot vs libname + engine which is a connection for current data */
+proc import datafile="S:/workshop/EPG1V2/data/class.xlsx"
+			out=class_teachers
+			dbms=xlsx 
+			replace;
+	sheet="class_teachers";
+run;
+
+/*
+proc import out = WORK.auto1 datafile= "C:auto.xls" 
+            dbms=xls replace;
+     sheet="auto1"; 
+     getnames=yes;
+run;*/
+
+
+/* export an excel file */
+%let outpath=S:/workshop/EPG1V2/output;
+LIBNAME pg1 "S:/workshop/EPG1V2/data";
+libname xl_lib xlsx "&outpath/storm.xlsx";
+
+/* creates a sheet in the file */
+data xl_lib.storm_final;
+	set pg1.storm_final;
+	drop Lat Lon Basin OceanCode;
+run;
+
+/* clears the library reference */
+libname xl_lib clear;
+
+
+
+/* ####
+UNSTRUCTURED DATA ALWAYS NEEDS PROC IMPORT AND FULL PATH NAME
+
+SAS guesses the length and type using the first 20 rows
+variable case does not matter
+whitespace does not matter
+variable spelling does not matter (sas will guess what variable you mean)
+
+#### */
+
+proc import datafile="S:/workshop/EPG1V2/data/np_traffic.csv" 
+		dbms=csv out=traffic replace;
+		guessingrows=5000;
+run;
+
+proc contents data=traffic;
+run;
+
+/*
+Define a delimiter
+getnames takes the first row as headers
+*/
+proc import datafile="S:/workshop/EPG1V2/data/np_traffic.dat" 
+			dbms=dlm 
+			out=traffic2 
+			replace;
+	delimiter="|";
+	getnames=yes;
+	guessingrows=max;
+run;
+
+
+/* #### IMPORTING OTHER TYPES #### */
+proc import datafile="S:/workshop/EPG1V2/data/storm_damage.tab"
+            dbms=tab out=storm_damage_tab replace;
+run; 
+
+
+/* 
+
+macro created in libname.sas program
+-export a file
+-import a file
+-using a macro variable in a string
+
+ */
+
+proc export data=pg1.storm_final
+			dbms=csv
+			outfile="&outpath/storm_final.csv"
+			replace;
+run;  
+
+proc import datafile="&outpath/storm_final.csv"
+			dbms=csv
+			out=test_ex_imp
+			replace;
+run;
+
+
+/* #### FILTERING EXAMPLES ### */
+libname pg1 "S:/workshop/EPG1V2/data";
+
+/*which months are represented?*/
+/*how to create a column from an existing column?*/
+proc freq data=pg1.eu_occ;
+	tables YearMon;
+	where Hotel GT 40000000;
+run;
+
+/*How to Filtere with Case Insenstivity*/
+proc print data=pg1.np_traffic;
+	var ParkName Location Count;
+	where Count NE 0 and upcase(Location) like "%MAIN ENTRANCE%";
+run;
+
+/*Create Variables with %let
+1. Strings don't use quotes. values are replaced in code
+2. Code must signal variable with &
+3. Code uses Double Quotes when referring to variable
+*/
+%let ParkCode = ZION;
+%let SpeciesCat = Bird;
+
+
+proc freq data=pg1.np_species;
+	where Species_ID like "&ParkCode%" and 
+	Category EQ "&SpeciesCat";
+	tables Abundance Conservation_Status;
+run;
+
+proc print data=pg1.np_species;
+	var Species_ID Category Scientific_Name Common_Names;
+	where Species_ID like "&ParkCode%" and 
+	Category EQ "&SpeciesCat";	
+run;
+
+
+/*#### CREATING DATA EXAMPLES #### */
+libname pg1 "S:/workshop/EPG1V2/data";
+
+/* data step loops each row and performs each condition  */
+
+/* filter rows and keep columns. output stored in a work library */
+data Storm_cat5;
+	set pg1.storm_summary;
+	where MaxWindMPH GE 156 and
+	StartDate GE '01JAN2000'd;
+	keep Season Basin Name Type MaxWindMPH;
+run;
+
+/* 
+filter categorical data (sas case sensitive) and drop columns stored in work table
+sort new data set
+
+*/
+data fox;
+	set pg1.np_species;
+	where upcase(Category) = 'MAMMAL' and
+	upcase(Common_names) like '%FOX%' and
+	upcase(Common_names) not like '%SQUIRREL%';
+	drop Category Record_Status Occurrence Nativeness;
+run;
+
+proc sort data=fox;
+	by Common_names;
+run;
+
+
+
+/*  
+see fields and head of rows
+create a variable to use
+create table using in work library filter using variable and drop columns
+create frequency table
+*/
+proc contents data=pg1.np_species;
+run;
+
+proc report data=pg1.np_species (obs=20);
+run;
+
+%let vCat = Bird;
+
+data mammal;
+	set pg1.np_species;
+	where Category = "&vCat";
+	drop Abundance Seasonality Conservation_Status;
+run;
+
+proc freq data=mammal;
+	tables Record_Status;
+run;
+
+
+/*#### REPORTS EXAMPLES #### */
+
+/*CREATE TABLE DIRECTORY OBJECT*/
+libname pg1 "S:/workshop/EPG1V2/data/";
+
+/*SUMMARY STRUCTURE*/
+proc contents data=pg1.np_summary;
+run;
+
+/*HEAD*/
+proc print data=pg1.np_summary (obs=20);
+var Reg Type ParkName DayVisits TentCampers RVCampers;
+run;
+
+/*MEANS ACROSS*/
+proc means data=pg1.np_summary;
+var DayVisits TentCampers RVCampers;
+run;
+
+/*UNIVARIATE ACROSS*/
+proc univariate data=pg1.np_summary;
+var DayVisits TentCampers RVCampers;
+run;
+
+/*FREQ DIST ACROSS*/
+proc freq data=pg1.np_summary;
+tables Reg Type;
+run;
+
+
+
+/*#### TOP 3 BY GROUP #### */
+
+proc report data=pg1.np_multiyr (obs=30);
+run;
+
+proc means data=pg1.np_multiyr noprint;
+	var Visitors; /*scope of stats in head or out*/
+	class Region Year;
+	ways 2;
+	output out=top3parks(drop= _freq_ _type_)
+		sum=TotalVisitors
+		idgroup(max(Visitors) /*find the max of visitors*/
+    	   out[3] /*top 3*/
+    	   (Visitors ParkName)=); /*output columns for top 3 parks*/ 
+run;
+
+
+/*#### GRAPHICS AND PLOTS #### */
+
+/*
+add and clear custom titles
+remove procedure titles 
+turing on graphics for graphing
+ordering frequency report descending
+
+ */
+
+libname pg1 "S:/workshop/EPG1V2/data";
+
+proc report data=pg1.np_codelookup (obs=200);
+run;
+
+title "Species";
+title2 "Everglades";
+ods graphics on;
+ods noproctitle;
+
+proc freq data=pg1.np_species order=freq;
+	tables Category / nocum plots=freqplot();
+	where Species_ID like "EVER%" 
+	and Category NE "Vascular Plant";
+	;
+run;
+title;
+
+
+proc report data=pg1.np_codelookup (obs=20);
+	where upcase(Type) like '%OTHER%';
+run;
+
+
+/*
+
+for plot tables Row*Col <- Col is used for groupby=column default
+so can flip it there or in plots function 
+  */
+ods graphics on;
+title "Parks by Region";
+proc freq data=pg1.np_codelookup order=freq;
+	tables Type*Region / 
+		nocol 
+		crosslist 
+		plots=freqplot(
+			orient=horizontal
+			scale=percent
+			groupby=row);
+	where upcase(Type) not like '%OTHER%' 
+	and Type in('National Park', 'National Historic Site', 'National Monument');
+run;
+
+/* proc sgplot creates panel and sets those attributes; needs a geom */
+
+title1 'Counts of Selected Park Types by Park Region';
+proc sgplot data=pg1.np_codelookup;
+    where Type in ('National Historic Site', 'National Monument', 'National Park');
+    hbar region / 
+    	group=type
+    	transparency=.5
+    	seglabel
+    	dataskin = crisp;
+    keylegend / opaque across=1 position=bottomright location=inside;
+    xaxis grid;
+run;
